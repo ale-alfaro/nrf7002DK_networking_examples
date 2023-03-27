@@ -13,6 +13,189 @@
 #include <dk_buttons_and_leds.h>
 #include "mqtt_connection.h"
 
+
+#ifdef CONFIG_HTTP_GET_EXAMPLE
+/* HTTP server to connect to */
+#define HTTP_HOST "google.com"
+/* Port to connect to, as string */
+#if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
+#define HTTP_PORT "443"
+#else
+#define HTTP_PORT "80"
+#endif
+/* HTTP path to request */
+#define HTTP_PATH "/"
+
+#define SSTRLEN(s) (sizeof(s) - 1)
+#define CHECK(r) { if (r == -1) { printf("Error: " #r "\n"); exit(1); } }
+
+#define REQUEST "GET " HTTP_PATH " HTTP/1.0\r\nHost: " HTTP_HOST "\r\n\r\n"
+
+static char response[1024];
+
+void dump_addrinfo(const struct addrinfo *ai)
+{
+	printf("addrinfo @%p: ai_family=%d, ai_socktype=%d, ai_protocol=%d, "
+	       "sa_family=%d, sin_port=%x\n",
+	       ai, ai->ai_family, ai->ai_socktype, ai->ai_protocol,
+	       ai->ai_addr->sa_family,
+	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
+}
+
+int http_get_example(void) {
+
+	static struct addrinfo hints;
+	struct addrinfo *res;
+	int st, sock;
+	printf("Preparing HTTP GET request for http://" HTTP_HOST
+	       ":" HTTP_PORT HTTP_PATH "\n");
+
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	st = getaddrinfo(HTTP_HOST, HTTP_PORT, &hints, &res);
+	printf("getaddrinfo status: %d\n", st);
+
+	if (st != 0) {
+		printf("Unable to resolve address, quitting\n");
+		return;
+	}
+
+#if 0
+	for (; res; res = res->ai_next) {
+		dump_addrinfo(res);
+	}
+#endif
+
+	dump_addrinfo(res);
+
+#if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
+	sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
+#else
+	sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+#endif
+	CHECK(sock);
+	printf("sock = %d\n", sock);
+
+#if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
+	sec_tag_t sec_tag_opt[] = {
+		CA_CERTIFICATE_TAG,
+	};
+	CHECK(setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
+			 sec_tag_opt, sizeof(sec_tag_opt)));
+
+	CHECK(setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
+			 HTTP_HOST, sizeof(HTTP_HOST)))
+#endif
+
+	CHECK(connect(sock, res->ai_addr, res->ai_addrlen));
+	CHECK(send(sock, REQUEST, SSTRLEN(REQUEST), 0));
+
+	printf("Response:\n\n");
+
+	while (1) {
+		int len = recv(sock, response, sizeof(response) - 1, 0);
+
+		if (len < 0) {
+			printf("Error reading response\n");
+			return;
+		}
+
+		if (len == 0) {
+			break;
+		}
+
+		response[len] = 0;
+		printf("%s", response);
+	}
+
+	printf("\n");
+
+	(void)close(sock);
+}
+
+#endif
+
+#ifdef CONFIG_SOCKET_ECHO_EXAMPLE
+
+#define BIND_PORT 4242
+
+int socket_echo_example(void) {
+
+	int serv;
+	struct sockaddr_in bind_addr;
+	static int counter;
+
+	serv = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (serv < 0) {
+		printf("error: socket: %d\n", errno);
+		exit(1);
+	}
+	bind_addr.sin_family = AF_INET;
+	bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	bind_addr.sin_port = htons(BIND_PORT);
+
+	if (bind(serv, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+		printf("error: bind: %d\n", errno);
+		exit(1);
+	}
+
+	if (listen(serv, 5) < 0) {
+		printf("error: listen: %d\n", errno);
+		exit(1);
+	}
+
+	printf("Single-threaded TCP echo server waits for a connection on "
+	       "port %d...\n", BIND_PORT);
+
+	while (1) {
+		struct sockaddr_in client_addr;
+		socklen_t client_addr_len = sizeof(client_addr);
+		char addr_str[32];
+		int client = accept(serv, (struct sockaddr *)&client_addr,
+				    &client_addr_len);
+
+		if (client < 0) {
+			printf("error: accept: %d\n", errno);
+			continue;
+		}
+
+		inet_ntop(client_addr.sin_family, &client_addr.sin_addr,
+			  addr_str, sizeof(addr_str));
+		printf("Connection #%d from %s\n", counter++, addr_str);
+
+		while (1) {
+			char buf[128], *p;
+			int len = recv(client, buf, sizeof(buf), 0);
+			int out_len;
+
+			if (len <= 0) {
+				if (len < 0) {
+					printf("error: recv: %d\n", errno);
+				}
+				break;
+			}
+
+			p = buf;
+			do {
+				out_len = send(client, p, len, 0);
+				if (out_len < 0) {
+					printf("error: send: %d\n", errno);
+					goto error;
+				}
+				p += out_len;
+				len -= out_len;
+			} while (len);
+		}
+
+error:
+		close(client);
+		printf("Connection from %s closed\n", addr_str);
+	}
+}
+
+#endif
+
 /* Buffers for MQTT client. */
 static uint8_t rx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];
 static uint8_t tx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];

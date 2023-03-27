@@ -20,4 +20,8 @@ int fds_init(struct mqtt_client *c, struct pollfd *fds);
 int data_publish(struct mqtt_client *c, enum mqtt_qos qos,
 	uint8_t *data, size_t len);
 
+int http_get_example(void);
+
+int socket_echo_example(void);
+
 #endif /* _CONNECTION_H_ */

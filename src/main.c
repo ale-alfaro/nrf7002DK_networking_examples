@@ -474,8 +474,16 @@ void main(void)
 	net_mgmt_add_event_callback(&wifi_prov_cb);
 	k_sem_take(&wifi_connected_sem, K_FOREVER);
 	/* Wait for the interface to be up */
-	k_sleep(K_SECONDS(6));
+	k_sleep(K_SECONDS(10));
+#if CONFIG_HTTP_GET_EXAMPLE
+	LOG_INF("HTTP GET request...");
+	http_get_example();
+#elif CONFIG_SOCKET_ECHO_EXAMPLE
+	LOG_INF("Socket echo example...");
+	socket_echo_example();
+#else
 	LOG_INF("Connecting to MQTT Broker...");
 	/* Connect to MQTT Broker */
 	connect_mqtt();
+#endif
 }

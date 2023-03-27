@@ -13,6 +13,14 @@ config WIFI_PROV_ADV_DATA_UPDATE
 	bool "Enable periodic update of advertisement data"
 	default y
 
+config HTTP_GET_EXAMPLE
+	bool "Enable HTTP GET example"
+	default n
+
+config SOCKET_ECHO_EXAMPLE
+	bool "Enable socket echo example"
+	default y
+
 if WIFI_PROV_ADV_DATA_UPDATE
 
 	config WIFI_PROV_ADV_DATA_UPDATE_INTERVAL
