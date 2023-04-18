@@ -19,7 +19,15 @@ config HTTP_GET_EXAMPLE
 
 config SOCKET_ECHO_EXAMPLE
 	bool "Enable socket echo example"
-	default y
+	default n
+
+config HTTP_CLIENT_EXAMPLE
+	bool "Enable HTTP client example"
+	default n
+
+config HTTP_SERVER_EXAMPLE
+	bool "Enable HTTP server example"
+	default n
 
 if WIFI_PROV_ADV_DATA_UPDATE
 

@@ -9,11 +9,6 @@
 #include <errno.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/kernel.h>
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/hci.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/uuid.h>
-#include <zephyr/bluetooth/gatt.h>
 
 #include <zephyr/net/wifi.h>
 #include <zephyr/net/wifi_mgmt.h>
@@ -23,12 +18,27 @@
 #include <zephyr/net/mqtt.h>
 #include <dk_buttons_and_leds.h>
 
-#include "mqtt_connection.h"
-
-#include <bluetooth/services/wifi_provisioning.h>
+#include "mqtt/mqtt_connection.h"
+#include "http_client/http_client.h"
+#include "http_server/http_server.h"
 
 LOG_MODULE_REGISTER(MQTT_OVER_WIFI, LOG_LEVEL_INF);
 K_SEM_DEFINE(wifi_connected_sem, 0, 1);
+
+
+/* The mqtt client struct */
+static struct mqtt_client client;
+/* File descriptor */
+static struct pollfd fds;
+
+#if CONFIG_BT
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/gatt.h>
+
+#include <bluetooth/services/wifi_provisioning.h>
 
 #ifdef CONFIG_WIFI_PROV_ADV_DATA_UPDATE
 #define ADV_DATA_UPDATE_INTERVAL      CONFIG_WIFI_PROV_ADV_DATA_UPDATE_INTERVAL
@@ -53,12 +63,9 @@ K_SEM_DEFINE(wifi_connected_sem, 0, 1);
 #define ADV_DAEMON_STACK_SIZE 4096
 #define ADV_DAEMON_PRIORITY 5
 
-/* The mqtt client struct */
-static struct mqtt_client client;
-/* File descriptor */
-static struct pollfd fds;
 K_THREAD_STACK_DEFINE(adv_daemon_stack_area, ADV_DAEMON_STACK_SIZE);
 static struct k_work_q adv_daemon_work_q;
+
 static uint8_t device_name[] = {'P', 'V', '0', '0', '0', '0', '0', '0'};
 static uint8_t prov_svc_data[] = {BT_UUID_PROV_VAL, 0x00, 0x00, 0x00, 0x00};
 
@@ -71,10 +78,12 @@ static const struct bt_data ad[] = {
 static const struct bt_data sd[] = {
 	BT_DATA(BT_DATA_SVC_DATA128, prov_svc_data, sizeof(prov_svc_data)),
 };
+#endif
 
 static struct k_work_delayable update_adv_param_work;
 static struct k_work_delayable update_adv_data_work;
 static struct net_mgmt_event_callback wifi_prov_cb;
+#if CONFIG_BT
 static void update_wifi_status_in_adv(void)
 {
 	int rc;
@@ -251,6 +260,8 @@ static void update_dev_name(struct net_linkaddr *mac_addr)
 	byte_to_hex(&device_name[6], mac_addr->addr[5], 'A');
 }
 
+#endif
+
 static void get_wifi_credential(void *cb_arg, const char *ssid, size_t ssid_len)
 {
 	struct wifi_credentials_personal config;
@@ -378,14 +389,17 @@ static void wifi_connect_handler(struct net_mgmt_event_callback *cb,
 }
 void main(void)
 {
-	int rc;
+	uint64_t rc;
 	struct wifi_credentials_personal config = { 0 };
 	struct net_if *iface = net_if_get_default();
 	struct wifi_connect_req_params cnx_params = { 0 };
-	struct net_linkaddr *mac_addr = net_if_get_link_addr(iface);
-	char device_name_str[sizeof(device_name) + 1];
+	
 	/* Sleep 1 seconds to allow initialization of wifi driver. */
 	k_sleep(K_SECONDS(1));
+
+#if CONFIG_BT
+	char device_name_str[sizeof(device_name) + 1];
+	struct net_linkaddr *mac_addr = net_if_get_link_addr(iface);
 
 	bt_conn_auth_cb_register(&auth_cb_display);
 	bt_conn_auth_info_cb_register(&auth_info_cb_display);
@@ -421,6 +435,8 @@ void main(void)
 		return;
 	}
 	LOG_INF("BT Advertising successfully started.\n");
+	k_work_init_delayable(&update_adv_param_work, update_adv_param_task);
+	k_work_init_delayable(&update_adv_data_work, update_adv_data_task);
 
 	update_wifi_status_in_adv();
 
@@ -429,12 +445,11 @@ void main(void)
 			K_THREAD_STACK_SIZEOF(adv_daemon_stack_area), ADV_DAEMON_PRIORITY,
 			NULL);
 
-	k_work_init_delayable(&update_adv_param_work, update_adv_param_task);
-	k_work_init_delayable(&update_adv_data_work, update_adv_data_task);
 #ifdef CONFIG_WIFI_PROV_ADV_DATA_UPDATE
 	k_work_schedule_for_queue(&adv_daemon_work_q, &update_adv_data_work,
 				K_SECONDS(ADV_DATA_UPDATE_INTERVAL));
 #endif /* CONFIG_WIFI_PROV_ADV_DATA_UPDATE */
+#endif //CONFIG_BT
 
 	/* Search for stored wifi credential and apply */
 	wifi_credentials_for_each_ssid(get_wifi_credential, &config);
@@ -481,6 +496,12 @@ void main(void)
 #elif CONFIG_SOCKET_ECHO_EXAMPLE
 	LOG_INF("Socket echo example...");
 	socket_echo_example();
+#elif CONFIG_HTTP_CLIENT_EXAMPLE
+	LOG_INF("HTTP client example...");
+	http_client_example();
+#elif CONFIG_HTTP_SERVER_EXAMPLE
+	LOG_INF("HTTP server example...");
+	http_server_example();
 #else
 	LOG_INF("Connecting to MQTT Broker...");
 	/* Connect to MQTT Broker */
